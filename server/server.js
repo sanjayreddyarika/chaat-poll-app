@@ -3,7 +3,13 @@ const cors = require("cors");
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+
+// CORS: allow your frontend on Render (set FRONTEND_URL later); "*" is fine for now
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "*",
+  })
+);
 
 const ADMIN_KEY = process.env.ADMIN_KEY || "admin123";
 
@@ -17,8 +23,8 @@ const polls = {
   },
   taglines: {
     id: "taglines",
-    title: "Select a meaningful tagline",
-    description: "Vote for the best apt tagline",
+    title: "Select a tagline",
+    description: "Vote for the best tagline",
     options: [
       "PANIPURI and More",
       "Paniprui and Beyond",
@@ -30,19 +36,24 @@ const polls = {
   },
 };
 
-// In-memory counts (local only)
+// In-memory counts (NO DB)
 const votes = {
   businessName: Array(polls.businessName.options.length).fill(0),
   taglines: Array(polls.taglines.options.length).fill(0),
 };
 
-// Store one submission per device
+// One submission per device
 // deviceId -> { businessNameIndex, taglineIndex, customTagline, createdAt }
 const submissionsByDevice = new Map();
 
-// Store pair summary counts
-// key: "BusinessName + TaglineLabel" -> count
+// Pair summary counts
+// label "Name + Tagline" -> count
 const pairCounts = new Map();
+
+// Health check (useful on Render)
+app.get("/", (req, res) => {
+  res.send("CHAAT Poll API is running");
+});
 
 // Get poll definition
 app.get("/api/polls/:pollId", (req, res) => {
@@ -59,7 +70,7 @@ app.post("/api/submit", (req, res) => {
     return res.status(400).json({ message: "Invalid deviceId" });
   }
 
-  // Block duplicate device vote
+  // block duplicate device vote
   if (submissionsByDevice.has(deviceId)) {
     return res
       .status(409)
@@ -69,7 +80,7 @@ app.post("/api/submit", (req, res) => {
   const bnPoll = polls.businessName;
   const tgPoll = polls.taglines;
 
-  // Validate business name selection
+  // validate business name
   if (
     typeof businessNameIndex !== "number" ||
     businessNameIndex < 0 ||
@@ -78,9 +89,7 @@ app.post("/api/submit", (req, res) => {
     return res.status(400).json({ message: "Invalid business name selection" });
   }
 
-  // taglineIndex:
-  // 0..N-1 => predefined option
-  // -1 => custom tagline
+  // taglineIndex: 0..N-1 or -1 for custom
   if (
     typeof taglineIndex !== "number" ||
     taglineIndex < -1 ||
@@ -93,14 +102,11 @@ app.post("/api/submit", (req, res) => {
     return res.status(400).json({ message: "Please enter your custom tagline" });
   }
 
-  // Update counts
+  // update counts
   votes.businessName[businessNameIndex] += 1;
+  if (taglineIndex >= 0) votes.taglines[taglineIndex] += 1;
 
-  if (taglineIndex >= 0) {
-    votes.taglines[taglineIndex] += 1;
-  }
-
-  // Save submission for admin reference
+  // save submission
   submissionsByDevice.set(deviceId, {
     businessNameIndex,
     taglineIndex,
@@ -108,7 +114,6 @@ app.post("/api/submit", (req, res) => {
     createdAt: new Date().toISOString(),
   });
 
-  // Pair summary label
   const chosenName = bnPoll.options[businessNameIndex];
   const chosenTagline =
     taglineIndex >= 0
@@ -142,6 +147,4 @@ app.get("/api/admin/results", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () =>
-  console.log(`Backend running: http://localhost:${PORT}`)
-);
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
